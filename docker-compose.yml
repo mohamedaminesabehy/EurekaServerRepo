@@ -1,0 +1,147 @@
+version: '3.8'
+
+services:
+  # Eureka Server
+  eureka-server:
+    image: eureka-server:latest
+    container_name: eureka-server
+    build:
+      context: ./EurekaServer
+      dockerfile: Dockerfile
+    ports:
+      - "8761:8761"
+    environment:
+      - SPRING_APPLICATION_NAME=EurekaServer
+      - SERVER_PORT=8761
+      - EUREKA_CLIENT_REGISTER_WITH_EUREKA=false
+      - EUREKA_CLIENT_FETCH_REGISTRY=false
+      - EUREKA_INSTANCE_HOSTNAME=eureka-server
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://eureka-server:8761/eureka/
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - microservice-network
+
+  # Gateway
+  gateway:
+    image: openjdk:17-jdk-slim
+    container_name: gateway
+    build:
+      context: ./Gateway
+      dockerfile: Dockerfile
+    ports:
+      - "9094:9094"
+    environment:
+      - SPRING_APPLICATION_NAME=Gateway
+      - SERVER_PORT=9094
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://eureka-server:8761/eureka/
+      - EUREKA_CLIENT_REGISTER_WITH_EUREKA=true
+      - EUREKA_CLIENT_FETCH_REGISTRY=true
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=false
+      - EUREKA_INSTANCE_HOSTNAME=gateway
+      - SPRING_CLOUD_GATEWAY_DISCOVERY_LOCATOR_ENABLED=true
+      - SPRING_CLOUD_GATEWAY_DISCOVERY_LOCATOR_LOWER_CASE_SERVICE_ID=true
+      - SPRING_CLOUD_GATEWAY_ROUTES_0_ID=gestion-recette
+      - SPRING_CLOUD_GATEWAY_ROUTES_0_URI=lb://GESTIONRECETTE
+      - SPRING_CLOUD_GATEWAY_ROUTES_0_PREDICATES_0=Path=/recettes/**
+      - SPRING_CLOUD_GATEWAY_ROUTES_1_ID=restaurant-service
+      - SPRING_CLOUD_GATEWAY_ROUTES_1_URI=lb://RESTAURANT
+      - SPRING_CLOUD_GATEWAY_ROUTES_1_PREDICATES_0=Path=/restaurants/**
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    command: [ "sh", "-c", "sleep 10 && java -jar /app.jar" ]
+    networks:
+      - microservice-network
+
+  # GestionRecette Microservice
+  gestion-recette:
+    image: openjdk:17-jdk-slim
+    container_name: gestion-recette
+    build:
+      context: ./GestionRecette
+      dockerfile: Dockerfile
+    ports:
+      - "8087:8087"
+    environment:
+      - SPRING_APPLICATION_NAME=GESTIONRECETTE
+      - SERVER_PORT=8087
+      - SPRING_DATASOURCE_URL=jdbc:h2:file:./Database/Data/gestionrecette
+      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.h2.Driver
+      - SPRING_DATASOURCE_USERNAME=Maroua
+      - SPRING_DATASOURCE_PASSWORD=
+      - SPRING_H2_CONSOLE_ENABLED=true
+      - SPRING_H2_CONSOLE_PATH=/h2
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=update
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://eureka-server:8761/eureka/
+      - EUREKA_CLIENT_REGISTER_WITH_EUREKA=true
+      - EUREKA_CLIENT_FETCH_REGISTRY=true
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=false
+      - EUREKA_INSTANCE_HOSTNAME=recette
+      - EUREKA_INSTANCE_INSTANCE_ID=GESTIONRECETTE:8087
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    command: ["sh", "-c", "sleep 10 && java -jar /app.jar"]
+    networks:
+      - microservice-network
+
+  # Restaurant Microservice
+  restaurant:
+    image: openjdk:17-jdk-slim
+    container_name: restaurant
+    build:
+      context: ./Restaurant
+      dockerfile: Dockerfile
+    ports:
+      - "9096:9096"
+    environment:
+      - SPRING_APPLICATION_NAME=Restaurant
+      - SERVER_PORT=9096
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/CrudRestaurants?createDatabaseIfNotExist=true
+      - SPRING_DATASOURCE_USERNAME=root
+      - SPRING_DATASOURCE_PASSWORD=
+      - SPRING_JPA_HIBERNATE_DDL_AUTO=create
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://eureka-server:8761/eureka/
+      - EUREKA_CLIENT_REGISTER_WITH_EUREKA=true
+      - EUREKA_CLIENT_FETCH_REGISTRY=true
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=false
+      - EUREKA_INSTANCE_HOSTNAME=restaurant
+      - EUREKA_INSTANCE_INSTANCE_ID=Restaurant:9096
+    depends_on:
+      - eureka-server
+      - mysql
+    command: ["sh", "-c", "sleep 10 && java -jar /app.jar"]
+    networks:
+      - microservice-network
+
+  # MySQL Database
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-foyer
+    environment:
+      MYSQL_ROOT_PASSWORD: ''
+      MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+      MYSQL_DATABASE: CrudRestaurants
+    ports:
+      - "3309:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - microservice-network
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  microservice-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
